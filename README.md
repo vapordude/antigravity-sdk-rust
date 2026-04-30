@@ -24,7 +24,7 @@ import asyncio
 from google.antigravity import Agent
 
 async def main():
-    async with Agent(api_key="GEMINI_API_KEY") as agent:
+    async with Agent(system_instructions="You are an expert assistant for codebase navigation.", api_key="GEMINI_API_KEY") as agent:
         response = await agent.chat("What files are in the current directory?")
         print(response)
 
@@ -37,7 +37,7 @@ By default, `Agent` runs in **read-only mode** for safety. Pass
 ### Interactive Loop
 
 ```python
-async with Agent(api_key="GEMINI_API_KEY", read_only=False) as agent:
+async with Agent(system_instructions="You are a helpful assistant.", api_key="GEMINI_API_KEY", read_only=False) as agent:
     await agent.run_interactive_loop()
 ```
 
@@ -93,7 +93,7 @@ def get_weather(city: str) -> str:
     """Returns the current weather for a city."""
     return f"It's sunny in {city}."
 
-async with Agent(tools=[get_weather]) as agent:
+async with Agent(system_instructions="You are a helpful assistant.", tools=[get_weather]) as agent:
     response = await agent.chat("What's the weather in Tokyo?")
 ```
 
@@ -105,7 +105,10 @@ their tools to the agent:
 ```python
 from google.antigravity import Agent
 
-async with Agent(mcp_servers=["npx my-mcp-server"]) as agent:
+async with Agent(
+    system_instructions="You are a helpful assistant.",
+    mcp_servers=[{"type": "stdio", "command": "npx", "args": ["my-mcp-server"]}],
+) as agent:
     response = await agent.chat("Use the MCP tools to help me.")
 ```
 
@@ -123,7 +126,7 @@ policies = [
     ask_user("run_command", handler=my_handler),  # Ask before running commands
 ]
 
-async with Agent(policies=policies) as agent:
+async with Agent(system_instructions="You are a helpful assistant.", policies=policies) as agent:
     await agent.run_interactive_loop()
 ```
 
@@ -139,7 +142,7 @@ from google.antigravity.triggers import every
 async def check_status(ctx):
     ctx.send("Check the deployment status.")
 
-async with Agent(triggers=[every(60, check_status)]) as agent:
+async with Agent(system_instructions="You are a helpful assistant.", triggers=[every(60, check_status)]) as agent:
     await agent.run_interactive_loop()
 ```
 
@@ -152,6 +155,18 @@ The SDK follows a three-layer architecture:
 | **Layer 1** — Simplified | High-level, batteries-included entry point | `Agent` |
 | **Layer 2** — Session | Stateful session with history and convenience methods | `Conversation`, `ChatResponse`, `Step`, `ToolCall`, `HookRunner`, `ToolRunner`, `TriggerRunner` |
 | **Layer 3** — Adapter | Transport and backend abstraction | `Connection`, `ConnectionStrategy`, `LocalConnection` |
+
+## Component Documentation
+
+For more detailed documentation on specific components, see:
+
+-   [Agent](agent.py) — High-level, batteries-included entry point.
+-   [Connections](connections/README.md) — Transport and backend abstraction.
+-   [Conversation](conversation/README.md) — Stateful session management.
+-   [Hooks](hooks/README.md) — Agent lifecycle interception and policies.
+-   [MCP](mcp/README.md) — Model Context Protocol integration.
+-   [Tools](tools/README.md) — In-process tool execution.
+-   [Triggers](triggers/README.md) — Background tasks and external events.
 
 ## Examples
 

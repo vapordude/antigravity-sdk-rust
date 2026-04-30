@@ -12,7 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Tier 1 API for Antigravity SDK."""
+"""Layer 1 API for Antigravity SDK."""
 
 import asyncio
 import logging

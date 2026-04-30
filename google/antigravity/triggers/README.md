@@ -22,7 +22,7 @@ Use **triggers** for external events (timers, file changes, webhooks).
 
 ```python
 from google.antigravity.triggers import (
-    TriggerContext, TriggerDelivery, every, on_file_change,
+    TriggerContext, every, on_file_change,
     TriggerRunner, FileChange, FileChangeKind,
 )
 
@@ -31,7 +31,7 @@ async def health_check(ctx: TriggerContext) -> None:
   """Pings the agent every 5 minutes."""
   while True:
     await asyncio.sleep(300)
-    await ctx.send("Health check", delivery=TriggerDelivery.WAIT_IDLE)
+    await ctx.send("Health check")
 
 # 2. Or use a helper factory.
 async def on_config_change(ctx, changes: list[FileChange]):
@@ -56,20 +56,8 @@ async with TriggerRunner(
 
 The handle provided to every trigger at startup. Provides:
 
--   **`send(content, delivery=TriggerDelivery.SEND_IMMEDIATELY)`**: Push a message to the
-    agent.
+-   **`send(content)`**: Push a message to the agent.
 
-### Delivery Modes
-
-Controls how trigger messages are delivered to the agent:
-
-| Mode | Behavior |
-|------|----------|
-| `SEND_IMMEDIATELY` | Send immediately (non-blocking). Default. |
-| `WAIT_IDLE` | Wait until agent is idle, then send. |
-
-> **TODO**: `INTERRUPT` mode (cancel current turn, then send) is planned but
-> deferred due to safety implications for in-flight tool calls.
 
 ### Trigger Type
 
@@ -92,7 +80,7 @@ Creates a trigger that runs a callback on a fixed interval.
 async def check_status(ctx: TriggerContext) -> None:
   status = await check_service()
   if not status.ok:
-    await ctx.send(f"Unhealthy: {status}", delivery=TriggerDelivery.WAIT_IDLE)
+    await ctx.send(f"Unhealthy: {status}")
 
 my_trigger = every(300, check_status)  # Every 5 minutes.
 ```
