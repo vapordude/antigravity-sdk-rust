@@ -25,7 +25,6 @@ from typing import Annotated, Any, Callable, List, Optional, Union
 
 import pydantic
 
-
 # =============================================================================
 # Config types
 # =============================================================================
@@ -306,6 +305,37 @@ PythonTool = Callable[..., Any]
 # =============================================================================
 # Step types
 # =============================================================================
+
+
+class UsageMetadata(pydantic.BaseModel):
+  """Token usage metadata from the model API.
+
+  Fields are None when the data is not available (e.g. the step did not
+  involve a model call). A value of 0 means the model explicitly reported
+  zero tokens for that category.
+
+  Attributes:
+    prompt_token_count: Number of tokens in the prompt.
+    cached_content_token_count: Number of tokens from cached content. These are
+      a subset of prompt tokens.
+    candidates_token_count: Number of tokens in the generated candidates
+      (excluding thinking).
+    thoughts_token_count: Number of tokens used for thinking/reasoning.
+    total_token_count: Sum of prompt + candidates + thinking tokens.
+  """
+
+  # Input tokens.
+  prompt_token_count: int | None = None
+  cached_content_token_count: int | None = None
+
+  # Output tokens.
+  candidates_token_count: int | None = None
+  thoughts_token_count: int | None = None
+
+  # Total tokens (prompt + candidates + thoughts).
+  total_token_count: int | None = None
+
+
 class StepType(str, enum.Enum):
   """High-level type of a step."""
 
@@ -357,6 +387,8 @@ class Step(pydantic.BaseModel):
       steps per turn may have this flag set; consumers that want only the last
       response should iterate fully.
     structured_output: The structured output extracted from the finish step.
+    usage_metadata: Token usage for this specific step's model invocation, or
+      None if this step did not involve a model call.
   """
 
   id: str = ""
@@ -372,6 +404,7 @@ class Step(pydantic.BaseModel):
   error: str = ""
   is_complete_response: bool | None = None
   structured_output: Any | None = None
+  usage_metadata: UsageMetadata | None = None
 
   model_config = pydantic.ConfigDict(extra="allow")
 
@@ -541,11 +574,14 @@ class ChatResponse(pydantic.BaseModel):
     text: The final model response text.
     steps: All steps received during the interaction.
     structured_output: The structured output extracted from the finish step.
+    usage_metadata: Accumulated token usage across all model invocations in this
+      turn, or None if no usage data was reported.
   """
 
   text: str
   steps: list[Step]
   structured_output: Any | None = None
+  usage_metadata: UsageMetadata | None = None
 
 
 # =============================================================================

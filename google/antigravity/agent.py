@@ -245,3 +245,16 @@ class Agent:
     if not self._conversation:
       return None
     return self._conversation.conversation_id or None
+
+  @property
+  def total_usage(self) -> types.UsageMetadata:
+    """Cumulative token usage across all turns in this session.
+
+    Raises:
+      RuntimeError: If the agent session has not been started.
+    """
+    if not self._conversation:
+      raise RuntimeError(
+          "Agent session not started. Use 'async with Agent(...)'."
+      )
+    return self._conversation.total_usage

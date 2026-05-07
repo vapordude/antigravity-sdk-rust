@@ -24,3 +24,4 @@ from google.antigravity.types import GenerationConfig
 from google.antigravity.types import ModelConfig
 from google.antigravity.types import ModelEntry
 from google.antigravity.types import ThinkingLevel
+from google.antigravity.types import UsageMetadata

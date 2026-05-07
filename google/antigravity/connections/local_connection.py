@@ -808,6 +808,12 @@ class LocalConnection(connection.Connection):
               event.step_update, preserving_proto_field_name=True
           )
           step_obj = LocalConnectionStep.from_dict(step_dict)
+
+          # 3. Attach usage_metadata from the OutputEvent.
+          if event.HasField("usage_metadata"):
+            step_obj.usage_metadata = _parse_usage_metadata(
+                event.usage_metadata
+            )
           await self._step_queue.put(step_obj)
 
           # Record the cascade_id for use by TrajectoryStateUpdate
@@ -818,7 +824,7 @@ class LocalConnection(connection.Connection):
           ):
             self._cascade_id = step_update.cascade_id
 
-          # 3. Dispatch observe-only hooks for special step types.
+          # 4. Dispatch observe-only hooks for special step types.
           if step_obj.type == types.StepType.COMPACTION and self._hook_runner:
             self._run_in_background(
                 self._hook_runner.dispatch_compaction(
@@ -1553,3 +1559,21 @@ class LocalConnectionStrategy(connection.ConnectionStrategy):
     if hasattr(self, "_connection") and self._connection:
       await self._connection.disconnect()
       self._connection = None
+
+
+def _parse_usage_metadata(
+    usage_metadata: localharness_pb2.UsageMetadata,
+) -> types.UsageMetadata:
+  """Extracts UsageMetadata from proto message."""
+  um = types.UsageMetadata()
+  if usage_metadata.HasField("prompt_token_count"):
+    um.prompt_token_count = usage_metadata.prompt_token_count
+  if usage_metadata.HasField("cached_content_token_count"):
+    um.cached_content_token_count = usage_metadata.cached_content_token_count
+  if usage_metadata.HasField("candidates_token_count"):
+    um.candidates_token_count = usage_metadata.candidates_token_count
+  if usage_metadata.HasField("thoughts_token_count"):
+    um.thoughts_token_count = usage_metadata.thoughts_token_count
+  if usage_metadata.HasField("total_token_count"):
+    um.total_token_count = usage_metadata.total_token_count
+  return um

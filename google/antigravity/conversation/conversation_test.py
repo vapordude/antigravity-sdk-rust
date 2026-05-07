@@ -573,5 +573,179 @@ class ConversationClearHistoryTest(unittest.IsolatedAsyncioTestCase):
     self.assertEqual(len(conv.history), 100)
 
 
+class ConversationUsageMetadataTest(unittest.IsolatedAsyncioTestCase):
+
+  def _make_step_with_usage(
+      self,
+      step_index: int = 0,
+      prompt: int | None = None,
+      candidates: int | None = None,
+      total: int | None = None,
+      thoughts: int | None = None,
+      cached: int | None = None,
+      is_final: bool = False,
+  ) -> types.Step:
+    """Creates a Step with optional usage_metadata for testing."""
+    usage = types.UsageMetadata(
+        prompt_token_count=prompt,
+        cached_content_token_count=cached,
+        candidates_token_count=candidates,
+        thoughts_token_count=thoughts,
+        total_token_count=total,
+    )
+    return types.Step(
+        id=str(step_index),
+        step_index=step_index,
+        type=types.StepType.MODEL_RESPONSE,
+        source=types.StepSource.MODEL,
+        status=types.StepStatus.DONE,
+        content="",
+        is_complete_response=is_final,
+        usage_metadata=usage,
+    )
+
+  def _make_conv_with_mock(self):
+    mock_connection = mock.MagicMock(spec=connection.Connection)
+    mock_connection.wait_for_idle = mock.AsyncMock()
+    mock_connection.send = mock.AsyncMock()
+    return conversation.Conversation(mock_connection), mock_connection
+
+  async def test_total_usage_starts_at_zero(self):
+    """Verifies cumulative usage is initialized to zero, not None."""
+    conv, _ = self._make_conv_with_mock()
+    usage = conv.total_usage
+    self.assertEqual(
+        usage,
+        types.UsageMetadata(
+            prompt_token_count=0,
+            cached_content_token_count=0,
+            candidates_token_count=0,
+            thoughts_token_count=0,
+            total_token_count=0,
+        ),
+    )
+
+  async def test_total_usage_accumulates_across_steps(self):
+    """Verifies usage is summed from every step that reports it."""
+    conv, mock_connection = self._make_conv_with_mock()
+
+    async def gen():
+      yield self._make_step_with_usage(0, prompt=100, candidates=50, total=150)
+      yield self._make_step_with_usage(1, prompt=200, candidates=30, total=230)
+
+    mock_connection.receive_steps.return_value = gen()
+    async for _ in conv.receive_steps():
+      pass
+
+    usage = conv.total_usage
+    self.assertEqual(usage.prompt_token_count, 300)
+    self.assertEqual(usage.candidates_token_count, 80)
+    self.assertEqual(usage.total_token_count, 380)
+
+  async def test_total_usage_ignores_none_fields(self):
+    """Verifies None usage fields don't affect the cumulative total."""
+    conv, mock_connection = self._make_conv_with_mock()
+
+    step_with = self._make_step_with_usage(0, prompt=100, thoughts=10)
+    step_without = _make_step("no usage", step_index=1)  # usage_metadata=None
+
+    async def gen():
+      yield step_with
+      yield step_without
+
+    mock_connection.receive_steps.return_value = gen()
+    async for _ in conv.receive_steps():
+      pass
+
+    usage = conv.total_usage
+    self.assertEqual(usage.prompt_token_count, 100)
+    self.assertEqual(usage.thoughts_token_count, 10)
+
+  async def test_total_usage_accumulates_across_turns(self):
+    """Verifies cumulative usage spans multiple send/receive cycles."""
+    conv, mock_connection = self._make_conv_with_mock()
+
+    async def gen1():
+      yield self._make_step_with_usage(0, prompt=100, total=120)
+
+    async def gen2():
+      yield self._make_step_with_usage(1, prompt=150, total=180)
+
+    mock_connection.receive_steps.return_value = gen1()
+    await conv.send("turn1")
+    async for _ in conv.receive_steps():
+      pass
+
+    mock_connection.receive_steps.return_value = gen2()
+    await conv.send("turn2")
+    async for _ in conv.receive_steps():
+      pass
+
+    usage = conv.total_usage
+    self.assertEqual(usage.prompt_token_count, 250)
+    self.assertEqual(usage.total_token_count, 300)
+
+  async def test_total_usage_returns_copy(self):
+    """Verifies total_usage returns a copy, not a reference to internal state."""
+    conv, _ = self._make_conv_with_mock()
+    usage = conv.total_usage
+    usage.prompt_token_count = 999
+    self.assertEqual(conv.total_usage.prompt_token_count, 0)
+
+  async def test_clear_history_resets_usage(self):
+    """Verifies clear_history resets cumulative usage to zero."""
+    conv, mock_connection = self._make_conv_with_mock()
+
+    async def gen():
+      yield self._make_step_with_usage(0, prompt=500, total=600)
+
+    mock_connection.receive_steps.return_value = gen()
+    await conv.send("q")
+    async for _ in conv.receive_steps():
+      pass
+
+    self.assertEqual(conv.total_usage.prompt_token_count, 500)
+
+    conv.clear_history()
+
+    self.assertEqual(conv.total_usage.prompt_token_count, 0)
+    self.assertEqual(conv.total_usage.total_token_count, 0)
+
+  async def test_chat_returns_accumulated_usage_metadata(self):
+    """Verifies chat() accumulates usage across all steps in the turn."""
+    conv, mock_connection = self._make_conv_with_mock()
+
+    step1 = self._make_step_with_usage(0, prompt=100, candidates=50, total=150)
+    step2 = self._make_step_with_usage(
+        1, prompt=200, candidates=30, total=230, is_final=True
+    )
+    step2.content = "the answer"
+    step2.is_complete_response = True
+
+    async def gen():
+      yield step1
+      yield step2
+
+    mock_connection.receive_steps.return_value = gen()
+    result = await conv.chat("question")
+
+    self.assertIsNotNone(result.usage_metadata)
+    self.assertEqual(result.usage_metadata.prompt_token_count, 300)
+    self.assertEqual(result.usage_metadata.candidates_token_count, 80)
+    self.assertEqual(result.usage_metadata.total_token_count, 380)
+
+  async def test_chat_returns_none_usage_when_absent(self):
+    """Verifies chat() returns None usage_metadata when no step has it."""
+    conv, mock_connection = self._make_conv_with_mock()
+
+    async def gen():
+      yield _make_step("answer", step_index=0, is_final=True)
+
+    mock_connection.receive_steps.return_value = gen()
+    result = await conv.chat("question")
+
+    self.assertIsNone(result.usage_metadata)
+
+
 if __name__ == "__main__":
   unittest.main()

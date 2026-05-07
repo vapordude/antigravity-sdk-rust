@@ -171,6 +171,50 @@ class LocalConnectionTest(unittest.IsolatedAsyncioTestCase):
     self.assertEqual(steps[0].thinking, "Internal reasoning about the problem.")
     self.assertEqual(steps[0].content, "")
 
+  async def test_receive_steps_usage_metadata_populated(self):
+    """Tests that usage_metadata flows from OutputEvent through to SDK Step."""
+    conn = local_connection.LocalConnection(
+        process=self.mock_process,
+        ws=self.mock_ws,
+        tool_runner=self.tool_runner,
+    )
+
+    event = localharness_pb2.OutputEvent(
+        step_update=localharness_pb2.StepUpdate(
+            step_index=1,
+            text="Hello world",
+            state=localharness_pb2.StepUpdate.STATE_ACTIVE,
+            source=localharness_pb2.StepUpdate.SOURCE_MODEL,
+        ),
+        usage_metadata=localharness_pb2.UsageMetadata(
+            prompt_token_count=100,
+            candidates_token_count=50,
+            thoughts_token_count=25,
+            cached_content_token_count=40,
+            total_token_count=175,
+        ),
+    )
+
+    await self.mock_ws.put_event(event)
+    await self.mock_ws.close()
+    conn._is_idle.clear()
+
+    steps = []
+    async for step in conn.receive_steps():
+      steps.append(step)
+
+    self.assertEqual(len(steps), 1)
+    self.assertEqual(
+        steps[0].usage_metadata,
+        types.UsageMetadata(
+            prompt_token_count=100,
+            cached_content_token_count=40,
+            candidates_token_count=50,
+            thoughts_token_count=25,
+            total_token_count=175,
+        ),
+    )
+
   async def test_receive_steps_thinking_and_text_independent(self):
     """Tests that thinking and text are independent, non-exclusive fields.
 

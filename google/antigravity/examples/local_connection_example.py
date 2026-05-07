@@ -57,6 +57,11 @@ _DISABLE_RUN_COMMAND = flags.DEFINE_bool(
     False,
     "Whether to disable the run_command tool.",
 )
+_SHOW_USAGE = flags.DEFINE_bool(
+    "show_usage",
+    False,
+    "Whether to display token usage and trajectory after each turn.",
+)
 
 
 def read_file_upside_down(path: str) -> str:
@@ -72,6 +77,67 @@ def read_file_upside_down(path: str) -> str:
   with open(path, "r") as f:
     lines = f.readlines()
   return "".join(reversed(lines))
+
+
+def _add(cur: int | None, val: int | None) -> int | None:
+  """Adds two nullable ints, preserving None when both are absent."""
+  if val is None:
+    return cur
+  return (cur or 0) + val
+
+
+def _print_telemetry(
+    steps_this_turn: list[types.Step],
+    conversation: Conversation,
+) -> None:
+  """Prints telemetry data for the current turn."""
+  # Per-turn token usage (summed across all model invocations in this turn).
+  turn_usage = types.UsageMetadata()
+  for s in steps_this_turn:
+    if s.usage_metadata:
+      u = s.usage_metadata
+      turn_usage.prompt_token_count = _add(
+          turn_usage.prompt_token_count, u.prompt_token_count
+      )
+      turn_usage.candidates_token_count = _add(
+          turn_usage.candidates_token_count, u.candidates_token_count
+      )
+      turn_usage.total_token_count = _add(
+          turn_usage.total_token_count, u.total_token_count
+      )
+      turn_usage.thoughts_token_count = _add(
+          turn_usage.thoughts_token_count, u.thoughts_token_count
+      )
+      turn_usage.cached_content_token_count = _add(
+          turn_usage.cached_content_token_count, u.cached_content_token_count
+      )
+
+  print("\n--- Turn Token Usage ---")
+  print(f"  Prompt tokens:   {turn_usage.prompt_token_count}")
+  print(f"  Cached tokens:   {turn_usage.cached_content_token_count}")
+  print(f"  Output tokens:   {turn_usage.candidates_token_count}")
+  print(f"  Thinking tokens: {turn_usage.thoughts_token_count}")
+  print(f"  Total tokens:    {turn_usage.total_token_count}")
+
+  # Cumulative session usage.
+  cumul = conversation.total_usage
+  print("\n--- Session Cumulative Usage ---")
+  print(f"  Prompt tokens:   {cumul.prompt_token_count}")
+  print(f"  Cached tokens:   {cumul.cached_content_token_count}")
+  print(f"  Output tokens:   {cumul.candidates_token_count}")
+  print(f"  Thinking tokens: {cumul.thoughts_token_count}")
+  print(f"  Total tokens:    {cumul.total_token_count}")
+
+  # Trajectory summary.
+  history = conversation.history
+  print(f"\n--- Trajectory ({len(history)} steps) ---")
+  for i, s in enumerate(history):
+    label = f"    [{i}] {s.type.value} ({s.source.value}) - {s.status.value}"
+    if s.tool_calls:
+      names = ", ".join(tc.name for tc in s.tool_calls)
+      label += f" [{names}]"
+    print(label)
+  print()
 
 
 async def run():
@@ -137,13 +203,18 @@ async def run():
 
           await conversation.send(user_input)
 
+          steps_this_turn = []
           try:
             async for step in conversation.receive_steps():
+              steps_this_turn.append(step)
               if step.is_complete_response:
                 print(f"\n{step.content}\n")
           except asyncio.CancelledError:
             print("\nCanceling current request...")
             await conversation.cancel()
+
+          if _SHOW_USAGE.value:
+            _print_telemetry(steps_this_turn, conversation)
 
         except (KeyboardInterrupt, asyncio.CancelledError, EOFError):
           print(cli_utils.GOODBYE_MSG)

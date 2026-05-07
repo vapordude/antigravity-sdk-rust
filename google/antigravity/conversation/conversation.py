@@ -60,6 +60,13 @@ class Conversation:
     self._turn_start_indices: list[int] = []
     self._compaction_indices: list[int] = []
     self._max_history_size = max_history_size
+    self._cumulative_usage = types.UsageMetadata(
+        prompt_token_count=0,
+        candidates_token_count=0,
+        total_token_count=0,
+        thoughts_token_count=0,
+        cached_content_token_count=0,
+    )
 
   @classmethod
   @contextlib.asynccontextmanager
@@ -109,6 +116,8 @@ class Conversation:
       self._steps.append(step)
       if step.type == types.StepType.COMPACTION:
         self._compaction_indices.append(len(self._steps) - 1)
+      if step.usage_metadata:
+        self._accumulate_usage(step.usage_metadata)
       self._enforce_max_history()
       yield step
 
@@ -128,14 +137,35 @@ class Conversation:
     steps = []
     final_response = ""
     structured_output = None
+    turn_usage: types.UsageMetadata | None = None
     async for step in self.receive_steps():
       steps.append(step)
       if step.is_complete_response:
         final_response = step.content
       if step.type == types.StepType.FINISH:
         structured_output = step.structured_output
+      if step.usage_metadata:
+        if turn_usage is None:
+          turn_usage = types.UsageMetadata(
+              prompt_token_count=0,
+              cached_content_token_count=0,
+              candidates_token_count=0,
+              thoughts_token_count=0,
+              total_token_count=0,
+          )
+        usage = step.usage_metadata
+        turn_usage.prompt_token_count += usage.prompt_token_count or 0
+        turn_usage.cached_content_token_count += (
+            usage.cached_content_token_count or 0
+        )
+        turn_usage.candidates_token_count += usage.candidates_token_count or 0
+        turn_usage.thoughts_token_count += usage.thoughts_token_count or 0
+        turn_usage.total_token_count += usage.total_token_count or 0
     return types.ChatResponse(
-        text=final_response, steps=steps, structured_output=structured_output
+        text=final_response,
+        steps=steps,
+        structured_output=structured_output,
+        usage_metadata=turn_usage,
     )
 
   # ---------------------------------------------------------------------------
@@ -184,6 +214,13 @@ class Conversation:
     self._steps.clear()
     self._turn_start_indices.clear()
     self._compaction_indices.clear()
+    self._cumulative_usage = types.UsageMetadata(
+        prompt_token_count=0,
+        candidates_token_count=0,
+        total_token_count=0,
+        thoughts_token_count=0,
+        cached_content_token_count=0,
+    )
 
   def _enforce_max_history(self) -> None:
     """Trims history to max_history_size if a limit is set."""
@@ -211,6 +248,24 @@ class Conversation:
   def conversation_id(self) -> str:
     """Returns the conversation identifier, if one exists."""
     return self._connection.conversation_id
+
+  @property
+  def total_usage(self) -> types.UsageMetadata:
+    """Returns cumulative token usage across all turns in this session.
+
+    This aggregates usage_metadata from every step that reported it.
+    Individual field values are None if no step ever reported that field.
+    """
+    return self._cumulative_usage.model_copy()
+
+  def _accumulate_usage(self, usage: types.UsageMetadata) -> None:
+    """Adds per-step usage counts to the session-level cumulative totals."""
+    cu = self._cumulative_usage
+    cu.prompt_token_count += usage.prompt_token_count or 0
+    cu.cached_content_token_count += usage.cached_content_token_count or 0
+    cu.candidates_token_count += usage.candidates_token_count or 0
+    cu.thoughts_token_count += usage.thoughts_token_count or 0
+    cu.total_token_count += usage.total_token_count or 0
 
   # ---------------------------------------------------------------------------
   # Lifecycle

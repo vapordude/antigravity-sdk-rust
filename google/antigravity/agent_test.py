@@ -904,6 +904,25 @@ class AgentConfigTest(unittest.TestCase):
     a._conversation = mock_conv
     self.assertEqual(a.conversation_id, "test-conv-123")
 
+  def test_total_usage_before_start(self):
+    """Verifies total_usage raises RuntimeError before the session starts."""
+    a = agent.Agent(
+        local_connection.LocalAgentConfig(system_instructions="test")
+    )
+    with self.assertRaises(RuntimeError):
+      _ = a.total_usage
+
+  def test_total_usage_proxies_to_conversation(self):
+    """Verifies total_usage returns Conversation.total_usage."""
+    a = agent.Agent(
+        local_connection.LocalAgentConfig(system_instructions="test")
+    )
+    mock_conv = mock.MagicMock()
+    mock_usage = types.UsageMetadata(prompt_token_count=42)
+    mock_conv.total_usage = mock_usage
+    a._conversation = mock_conv
+    self.assertEqual(a.total_usage.prompt_token_count, 42)
+
 
 if __name__ == "__main__":
   unittest.main()
