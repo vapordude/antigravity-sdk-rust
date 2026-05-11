@@ -298,7 +298,27 @@ class McpSseServer(pydantic.BaseModel):
   headers: dict[str, str] | None = None
 
 
-McpServerConfig = McpStdioServer | McpSseServer
+class McpStreamableHttpServer(pydantic.BaseModel):
+  """Configuration for an MCP server connected via Streamable HTTP.
+
+  Attributes:
+    url: The URL of the HTTP endpoint.
+    type: The type of connection, always "http".
+    headers: Optional headers to send with the connection request.
+    timeout: Connection timeout in seconds.
+    sse_read_timeout: SSE read timeout in seconds.
+    terminate_on_close: Whether to terminate the connection on close.
+  """
+
+  url: str
+  type: Literal["http"] = "http"
+  headers: dict[str, str] | None = None
+  timeout: float = 30.0
+  sse_read_timeout: float = 300.0
+  terminate_on_close: bool = True
+
+
+McpServerConfig = McpStdioServer | McpSseServer | McpStreamableHttpServer
 
 
 # =============================================================================

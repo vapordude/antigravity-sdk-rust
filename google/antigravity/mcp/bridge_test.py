@@ -98,6 +98,43 @@ class TestMcpBridge(unittest.TestCase):
 
       asyncio.run(run_test())
 
+  def test_connect_streamable_http(self):
+    """Verifies that connect_streamable_http correctly configures HTTP transport parameters."""
+    bridge = McpBridge()
+
+    patch_target = (
+        "google.antigravity.mcp.bridge.ClientSessionGroup"
+    )
+    with mock.patch(patch_target) as mock_group_cls:
+      mock_session_group = mock.MagicMock(spec=ClientSessionGroup)
+      mock_group_cls.return_value = mock_session_group
+      mock_session_group.__aenter__ = mock.AsyncMock(
+          return_value=mock_session_group
+      )
+      mock_session_group.connect_to_server = mock.AsyncMock()
+      mock_session_group.tools = {}
+
+      async def run_test():
+        await bridge.connect_streamable_http("http://localhost:8080/mcp")
+        mock_session_group.connect_to_server.assert_called_once()
+
+        args, _ = mock_session_group.connect_to_server.call_args
+        params = args[0]
+        self.assertEqual(params.url, "http://localhost:8080/mcp")
+        self.assertEqual(params.terminate_on_close, True)
+
+        # Test with terminate_on_close=False
+        mock_session_group.connect_to_server.reset_mock()
+        await bridge.connect_streamable_http(
+            "http://localhost:8080/mcp", terminate_on_close=False
+        )
+        mock_session_group.connect_to_server.assert_called_once()
+        args, _ = mock_session_group.connect_to_server.call_args
+        params = args[0]
+        self.assertEqual(params.terminate_on_close, False)
+
+      asyncio.run(run_test())
+
   def test_stop(self):
     """Verifies that McpBridge stopped safely exiting ClientSessionGroup contexts."""
     bridge = McpBridge()

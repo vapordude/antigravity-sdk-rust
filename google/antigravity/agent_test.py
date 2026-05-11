@@ -722,6 +722,8 @@ class AgentTest(unittest.IsolatedAsyncioTestCase):
     mock_bridge_instance.__aenter__.return_value = mock_bridge_instance
     mock_bridge_instance.connect_stdio = mock.AsyncMock()
     mock_bridge_instance.connect_sse = mock.AsyncMock()
+    mock_bridge_instance.connect_streamable_http = mock.AsyncMock()
+    mock_bridge_instance.stop = mock.AsyncMock()
     mock_mcp_bridge.return_value = mock_bridge_instance
 
     mock_tool = mock.MagicMock()
@@ -731,6 +733,7 @@ class AgentTest(unittest.IsolatedAsyncioTestCase):
     mcp_servers = [
         types.McpStdioServer(command="python3", args=["server.py"]),
         types.McpSseServer(url="http://localhost:8000/sse"),
+        types.McpStreamableHttpServer(url="http://localhost:8000/http"),
     ]
 
     config = local_connection.LocalAgentConfig(
@@ -745,6 +748,13 @@ class AgentTest(unittest.IsolatedAsyncioTestCase):
       )
       mock_bridge_instance.connect_sse.assert_called_once_with(
           "http://localhost:8000/sse", None
+      )
+      mock_bridge_instance.connect_streamable_http.assert_called_once_with(
+          url="http://localhost:8000/http",
+          headers=None,
+          timeout=30.0,
+          sse_read_timeout=300.0,
+          terminate_on_close=True,
       )
 
       _, kwargs = mock_strategy_class.call_args

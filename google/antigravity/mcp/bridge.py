@@ -14,10 +14,13 @@
 
 """Bridge between MCP services and the SDK ToolRunner."""
 
+from datetime import timedelta
 from typing import Any, Callable
 from mcp.client import stdio
 from mcp.client.session_group import ClientSessionGroup
 from mcp.client.session_group import SseServerParameters
+from mcp.client.session_group import StreamableHttpParameters
+from google.antigravity.tools.tool_runner import ToolRunner
 from google.antigravity.tools.tool_runner import ToolWithSchema
 
 
@@ -67,6 +70,32 @@ class McpBridge:
   async def connect_sse(self, url: str, headers: dict[str, str] | None = None):
     """Connects to a remote MCP server over SSE."""
     params = SseServerParameters(url=url, headers=headers)
+    await self._connect(params)
+
+  async def connect_streamable_http(
+      self,
+      url: str,
+      headers: dict[str, str] | None = None,
+      timeout: float = 30.0,
+      sse_read_timeout: float = 300.0,
+      terminate_on_close: bool = True,
+  ):
+    """Connects to a remote MCP server over Streamable HTTP.
+
+    Args:
+      url: The URL of the HTTP endpoint.
+      headers: Optional headers to send with the connection request.
+      timeout: Connection timeout in seconds.
+      sse_read_timeout: SSE read timeout in seconds.
+      terminate_on_close: Whether to terminate the connection on close.
+    """
+    params = StreamableHttpParameters(
+        url=url,
+        headers=headers,
+        timeout=timedelta(seconds=timeout),
+        sse_read_timeout=timedelta(seconds=sse_read_timeout),
+        terminate_on_close=terminate_on_close,
+    )
     await self._connect(params)
 
   async def _connect(self, params):
