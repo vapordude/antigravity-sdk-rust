@@ -21,6 +21,22 @@ from google.antigravity import types
 from google.antigravity.hooks import hooks as hooks_base
 
 
+# Maps each hook type to the private attribute name on HookRunner that
+# holds its registration list. Order matches the isinstance precedence
+# of the original elif chain.
+_HOOK_TYPE_REGISTRY: list[tuple[type, str]] = [
+    (hooks_base.OnSessionStartHook, '_on_session_start_hooks'),
+    (hooks_base.OnSessionEndHook, '_on_session_end_hooks'),
+    (hooks_base.PreTurnHook, '_pre_turn_hooks'),
+    (hooks_base.PostTurnHook, '_post_turn_hooks'),
+    (hooks_base.PreToolCallDecideHook, '_pre_tool_call_decide_hooks'),
+    (hooks_base.PostToolCallHook, '_post_tool_call_hooks'),
+    (hooks_base.OnToolErrorHook, '_on_tool_error_hooks'),
+    (hooks_base.OnInteractionHook, '_on_interaction_hooks'),
+    (hooks_base.OnCompactionHook, '_on_compaction_hooks'),
+]
+
+
 class HookRunner:
   """Manages collections of specific hook types and dispatches events."""
 
@@ -53,7 +69,7 @@ class HookRunner:
   @property
   def has_hooks(self) -> bool:
     """Returns True if any hooks are registered."""
-    return any([
+    return any((
         self._on_session_start_hooks,
         self._on_session_end_hooks,
         self._pre_turn_hooks,
@@ -63,7 +79,7 @@ class HookRunner:
         self._on_tool_error_hooks,
         self._on_interaction_hooks,
         self._on_compaction_hooks,
-    ])
+    ))
 
   @property
   def on_session_start_hooks(self) -> tuple[hooks_base.OnSessionStartHook, ...]:
@@ -112,26 +128,11 @@ class HookRunner:
     Raises:
       ValueError: If the hook type is unknown.
     """
-    if isinstance(hook, hooks_base.OnSessionStartHook):
-      self._on_session_start_hooks.append(hook)
-    elif isinstance(hook, hooks_base.OnSessionEndHook):
-      self._on_session_end_hooks.append(hook)
-    elif isinstance(hook, hooks_base.PreTurnHook):
-      self._pre_turn_hooks.append(hook)
-    elif isinstance(hook, hooks_base.PostTurnHook):
-      self._post_turn_hooks.append(hook)
-    elif isinstance(hook, hooks_base.PreToolCallDecideHook):
-      self._pre_tool_call_decide_hooks.append(hook)
-    elif isinstance(hook, hooks_base.PostToolCallHook):
-      self._post_tool_call_hooks.append(hook)
-    elif isinstance(hook, hooks_base.OnToolErrorHook):
-      self._on_tool_error_hooks.append(hook)
-    elif isinstance(hook, hooks_base.OnInteractionHook):
-      self._on_interaction_hooks.append(hook)
-    elif isinstance(hook, hooks_base.OnCompactionHook):
-      self._on_compaction_hooks.append(hook)
-    else:
-      raise ValueError(f"Unknown hook type: {type(hook)}")
+    for hook_type, attr_name in _HOOK_TYPE_REGISTRY:
+      if isinstance(hook, hook_type):
+        getattr(self, attr_name).append(hook)
+        return
+    raise ValueError(f'Unknown hook type: {type(hook)}')
 
   # Session
   async def dispatch_session_start(self) -> None:
