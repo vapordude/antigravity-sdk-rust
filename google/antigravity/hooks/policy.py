@@ -76,9 +76,9 @@ from google.antigravity.hooks import hooks
 
 _logger = logging.getLogger(__name__)
 
-# A predicate receives the tool call's argument dict and returns whether
-# the policy applies. Supports both sync and async callables.
-# TODO(adh): Support strongly typed Pydantic models for tool arguments here.
+# A predicate receives the tool call's argument dict (or a Pydantic model,
+# if the predicate's first parameter is annotated with a BaseModel subclass)
+# and returns whether the policy applies. Supports both sync and async.
 Predicate = Callable[[Any], bool | Awaitable[bool]]
 
 # An ask_user handler receives the full ToolCall and returns whether the
@@ -210,11 +210,9 @@ def safe_defaults(handler: AskUserHandler) -> list[Policy]:
   Returns:
     A list of Policies.
   """
-  policies = []
-  for tool in types.BuiltinTools.read_only():
-    policies.append(allow(tool.value))
-  policies.append(ask_user("*", handler=handler))
-  return policies
+  return [allow(t.value) for t in types.BuiltinTools.read_only()] + [
+      ask_user("*", handler=handler)
+  ]
 
 
 def deny_all() -> Policy:
@@ -358,7 +356,6 @@ class _PolicyDecideHook(hooks.PreToolCallDecideHook):
       HookResult allowing or denying the tool call.
     """
     tool_call = data
-
     for bucket in self._buckets:
       for p in bucket:
         if not _matches_tool(p, tool_call.name):
