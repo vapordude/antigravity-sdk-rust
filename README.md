@@ -274,13 +274,13 @@ The SDK follows a three-layer architecture:
 
 For more detailed documentation on specific components, see:
 
--   [Agent](agent.py) — High-level, batteries-included entry point.
--   [Connections](connections/README.md) — Transport and backend abstraction.
--   [Conversation](conversation/README.md) — Stateful session management.
--   [Hooks](hooks/README.md) — Agent lifecycle interception and policies.
--   [MCP](mcp/README.md) — Model Context Protocol integration.
--   [Tools](tools/README.md) — In-process tool execution.
--   [Triggers](triggers/README.md) — Background tasks and external events.
+-   [Agent](google/antigravity/agent.py) — High-level, batteries-included entry point.
+-   [Connections](google/antigravity/connections/README.md) — Transport and backend abstraction.
+-   [Conversation](google/antigravity/conversation/README.md) — Stateful session management.
+-   [Hooks](google/antigravity/hooks/README.md) — Agent lifecycle interception and policies.
+-   [MCP](google/antigravity/mcp/README.md) — Model Context Protocol integration.
+-   [Tools](google/antigravity/tools/README.md) — In-process tool execution.
+-   [Triggers](google/antigravity/triggers/README.md) — Background tasks and external events.
 
 ## License
 
