@@ -125,6 +125,13 @@ _BUILTIN_TOOL_PROTO_FIELDS: dict[types.BuiltinTools, str] = {
 # from the Connection for a host-side tool whose specific call will follow.
 DEFAULT_HOST_TOOL_NAME = "pre_request_host_tool_request"
 
+# Constants for MCP tool confirmation mapping.
+_MCP_TOOL_PROTO_FIELD = "mcp_tool"
+_MCP_TOOL_PREFIX = "mcp_"
+
+
+def _get_mcp_tool_name(server_name: str, tool_name: str) -> str:
+  return f"{_MCP_TOOL_PREFIX}{server_name}_{tool_name}"
 
 _IDLE_SENTINEL = object()
 _CLOSE_SENTINEL = None
@@ -262,6 +269,17 @@ class LocalConnectionStep(types.Step):
     )
     active_tool_name, sub_msg = active_tool_pair
     active_tool_args = sub_msg if isinstance(sub_msg, dict) else {}
+
+    # Reconstruct the step's tool name and arguments from the Go-native McpTool
+    # proto format to maintain Python-side trajectory parity.
+    if not active_tool_name and _MCP_TOOL_PROTO_FIELD in step_dict:
+      mcp_dict = step_dict[_MCP_TOOL_PROTO_FIELD]
+      if isinstance(mcp_dict, dict):
+        server_name = mcp_dict.get("server_name", "")
+        tool_name = mcp_dict.get("tool_name", "")
+        active_tool_name = _get_mcp_tool_name(server_name, tool_name)
+        arguments_json = mcp_dict.get("arguments_json") or "{}"
+        active_tool_args = json.loads(arguments_json)
 
     if active_tool_name:
       canonical_path = None
@@ -1096,6 +1114,12 @@ class LocalConnection(connection.Connection):
           )
           break
 
+      if not found_action and step_update.HasField(_MCP_TOOL_PROTO_FIELD):
+        mcp_pb = getattr(step_update, _MCP_TOOL_PROTO_FIELD)
+        action_str = _get_mcp_tool_name(mcp_pb.server_name, mcp_pb.tool_name)
+        found_action = True
+        args = json.loads(mcp_pb.arguments_json or "{}")
+
       if not found_action:
         action_str = DEFAULT_HOST_TOOL_NAME
 
@@ -1420,6 +1444,28 @@ def _get_default_binary_path_external() -> str:
 _get_default_binary_path = _get_default_binary_path_external
 
 
+def _to_mcp_server_proto(
+    server_cfg: types.McpServerConfig,
+) -> localharness_pb2.McpServerConfig:
+  """Converts an McpServerConfig to a McpServerConfig proto."""
+  kwargs = {
+      "name": server_cfg.name,
+      "enabled_tools": server_cfg.enabled_tools or [],
+      "disabled_tools": server_cfg.disabled_tools or [],
+  }
+  if isinstance(server_cfg, types.McpStdioServer):
+    kwargs["stdio"] = localharness_pb2.McpStdioTransport(
+        command=server_cfg.command,
+        args=server_cfg.args,
+    )
+  elif isinstance(server_cfg, types.McpStreamableHttpServer):
+    kwargs["http"] = localharness_pb2.McpHttpTransport(
+        url=server_cfg.url,
+        headers=server_cfg.headers or {},
+    )
+  return localharness_pb2.McpServerConfig(**kwargs)
+
+
 class LocalConnectionStrategy(connection.ConnectionStrategy):
   """Strategy for establishing a LocalConnection."""
 
@@ -1440,11 +1486,28 @@ class LocalConnectionStrategy(connection.ConnectionStrategy):
       save_dir: str | None = None,
       workspaces: list[str] | None = None,
       app_data_dir: str | None = None,
+      mcp_servers: Sequence[types.McpServerConfig] | None = None,
   ):
+    """Initializes the instance.
+
+    Args:
+      tool_runner: Optional ToolRunner for custom tools.
+      hook_runner: Optional HookRunner for custom hooks.
+      gemini_config: Optional GeminiConfig or model name shorthand.
+      skills_paths: Optional list of paths to search for skills.
+      system_instructions: Optional SystemInstructions or string shorthand.
+      capabilities_config: Optional CapabilitiesConfig to configure tools.
+      conversation_id: Optional conversation identifier.
+      save_dir: Optional directory to save trajectories.
+      workspaces: Optional list of workspace paths.
+      app_data_dir: Optional directory for harness app data.
+      mcp_servers: Optional sequence of MCP server configurations.
+    """
     self._binary_path = _get_default_binary_path()
     self._tool_runner = tool_runner
     self._hook_runner = hook_runner
     self._connection: LocalConnection | None = None
+    self._mcp_servers = mcp_servers or []
 
     # Normalize str shorthand to GeminiConfig model.
     self._gemini_config: types.GeminiConfig | None = None
@@ -1585,7 +1648,11 @@ class LocalConnectionStrategy(connection.ConnectionStrategy):
         ),
     )
 
-    harness_config = localharness_pb2.HarnessConfig(
+    mcp_server_protos = [
+        _to_mcp_server_proto(s) for s in self._mcp_servers or []
+    ]
+
+    return localharness_pb2.HarnessConfig(
         tools=tool_protos,
         system_instructions=system_instructions_proto,
         cascade_id=self._conversation_id or "",
@@ -1597,9 +1664,8 @@ class LocalConnectionStrategy(connection.ConnectionStrategy):
         compaction_threshold=cfg.compaction_threshold or 0,
         finish_tool_schema_json=cfg.finish_tool_schema_json or "",
         app_data_dir=self._app_data_dir or "",
+        mcp_servers=mcp_server_protos,
     )
-
-    return harness_config
 
   def connect(self) -> connection.Connection:
     """Returns the established Connection."""

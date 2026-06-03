@@ -382,6 +382,87 @@ class LocalConnectionTest(unittest.IsolatedAsyncioTestCase):
     self.assertEqual(sent_data["toolConfirmation"]["trajectoryId"], "test_traj")
     self.assertFalse(sent_data["toolConfirmation"]["accepted"])
 
+  async def test_mcp_tool_confirmation_request_allowed(self):
+    hr = hook_runner.HookRunner()
+    captured_tool_calls = []
+
+    @hooks_base.pre_tool_call_decide
+    async def policy_hook(data: types.ToolCall) -> hooks_base.HookResult:
+      captured_tool_calls.append(data)
+      return hooks_base.HookResult(allow=True)
+
+    hr.register_hook(policy_hook)
+
+    harness = test_utils.TestLocalHarness(
+        test_case=self,
+        process=self.mock_process,
+        tool_runner=self.tool_runner,
+        hook_runner=hr,
+    )
+
+    allowed_event = localharness_pb2.OutputEvent(
+        step_update=localharness_pb2.StepUpdate(
+            step_index=1,
+            trajectory_id="test_traj",
+            state=localharness_pb2.StepUpdate.STATE_WAITING_FOR_USER,
+            tool_confirmation_request=localharness_pb2.ToolConfirmationRequest(),
+            mcp_tool=localharness_pb2.ActionMcpTool(
+                server_name="calc",
+                tool_name="math_add",
+                arguments_json='{"x": 10, "y": 20}',
+            ),
+        )
+    )
+    await harness.send_event(allowed_event)
+    sent_allowed = await harness.wait_for_response()
+    self.assertTrue(sent_allowed["toolConfirmation"]["accepted"])
+    self.assertEqual(len(captured_tool_calls), 1)
+    self.assertEqual(
+        captured_tool_calls[0].name,
+        local_connection._get_mcp_tool_name("calc", "math_add"),
+    )
+    self.assertEqual(captured_tool_calls[0].args, {"x": 10, "y": 20})
+
+  async def test_mcp_tool_confirmation_request_denied(self):
+    hr = hook_runner.HookRunner()
+    captured_tool_calls = []
+
+    @hooks_base.pre_tool_call_decide
+    async def policy_hook(data: types.ToolCall) -> hooks_base.HookResult:
+      captured_tool_calls.append(data)
+      return hooks_base.HookResult(allow=False)
+
+    hr.register_hook(policy_hook)
+
+    harness = test_utils.TestLocalHarness(
+        test_case=self,
+        process=self.mock_process,
+        tool_runner=self.tool_runner,
+        hook_runner=hr,
+    )
+
+    denied_event = localharness_pb2.OutputEvent(
+        step_update=localharness_pb2.StepUpdate(
+            step_index=2,
+            trajectory_id="test_traj",
+            state=localharness_pb2.StepUpdate.STATE_WAITING_FOR_USER,
+            tool_confirmation_request=localharness_pb2.ToolConfirmationRequest(),
+            mcp_tool=localharness_pb2.ActionMcpTool(
+                server_name="calc",
+                tool_name="math_multiply",
+                arguments_json='{"x": 5, "y": 4}',
+            ),
+        )
+    )
+    await harness.send_event(denied_event)
+    sent_denied = await harness.wait_for_response()
+    self.assertFalse(sent_denied["toolConfirmation"]["accepted"])
+    self.assertEqual(len(captured_tool_calls), 1)
+    self.assertEqual(
+        captured_tool_calls[0].name,
+        local_connection._get_mcp_tool_name("calc", "math_multiply"),
+    )
+
   async def test_tool_confirmation_request_has_id(self):
     hr = hook_runner.HookRunner()
     hook_event = asyncio.Event()
@@ -3574,6 +3655,48 @@ class LocalAgentConfigTest(unittest.TestCase):
           system_instructions="test",
           app_data_dir="relative/path",
       )
+
+  def test_create_strategy_with_mcp_servers(self):
+    stdio_cfg = types.McpStdioServer(
+        name="my-stdio",
+        command="npx",
+        args=["math"],
+        enabled_tools=["add", "sub"],
+    )
+    sse_cfg = types.McpStreamableHttpServer(
+        name="my-sse",
+        url="https://sse.example.com",
+    )
+    config = local_connection_config.LocalAgentConfig(
+        system_instructions="test",
+        mcp_servers=[stdio_cfg, sse_cfg],
+    )
+
+    mock_tool_runner = mock.create_autospec(
+        tool_runner.ToolRunner, instance=True
+    )
+    mock_hook_runner = mock.create_autospec(
+        hook_runner.HookRunner, instance=True
+    )
+
+    strategy = config.create_strategy(
+        tool_runner=mock_tool_runner,
+        hook_runner=mock_hook_runner,
+    )
+
+    harness_pb = strategy._build_harness_config()
+
+    self.assertEqual(len(harness_pb.mcp_servers), 2)
+
+    stdio_pb = harness_pb.mcp_servers[0]
+    self.assertEqual(stdio_pb.name, "my-stdio")
+    self.assertEqual(stdio_pb.enabled_tools, ["add", "sub"])
+    self.assertEqual(stdio_pb.stdio.command, "npx")
+    self.assertEqual(stdio_pb.stdio.args, ["math"])
+
+    sse_pb = harness_pb.mcp_servers[1]
+    self.assertEqual(sse_pb.name, "my-sse")
+    self.assertEqual(sse_pb.http.url, "https://sse.example.com")
 
 
 class LocalAgentConfigWorkspaceTest(
