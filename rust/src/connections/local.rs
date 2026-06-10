@@ -1,15 +1,16 @@
+#[allow(clippy::all)]
 pub mod localharness {
     include!(concat!(env!("OUT_DIR"), "/antigravity.localharness.rs"));
 }
 
-use crate::connections::connection::Connection;
+use tokio::io::{AsyncReadExt, AsyncWriteExt, BufReader};
+use tokio::process::{Child, ChildStdin, ChildStdout, Command};
+use anyhow::{Result, Context};
 use crate::types;
-use anyhow::{Context, Result};
+use crate::connections::connection::Connection;
 use async_trait::async_trait;
 use futures::stream::BoxStream;
 use prost::Message;
-use tokio::io::{AsyncReadExt, AsyncWriteExt, BufReader};
-use tokio::process::{Child, ChildStdin, ChildStdout, Command};
 
 #[allow(dead_code)]
 pub struct LocalConnection {
