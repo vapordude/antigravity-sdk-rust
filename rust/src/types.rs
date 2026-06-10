@@ -238,3 +238,9 @@ pub struct Step {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ToolResult {}
 // Removed unused HashMap import
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ToolCall {
+    pub name: String,
+    pub args: serde_json::Value,
+}
